@@ -134,6 +134,9 @@
         .inventory-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:0.7rem;font-weight:700;margin:3px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);}
         .inventory-badge.active-item{background:rgba(255,184,0,0.2);border-color:var(--neon-gold);color:var(--neon-gold);}
         .friend-slot{display:flex;align-items:center;justify-content:space-between;padding:10px;background:rgba(255,255,255,0.03);border-radius:12px;margin-bottom:5px;}
+        .notification-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(15,15,30,0.95);border:1px solid var(--neon-gold);border-radius:12px;padding:10px 20px;color:var(--neon-gold);font-weight:600;box-shadow:0 0 25px rgba(255,184,0,0.3);animation:notifIn 0.4s ease, notifOut 0.4s ease 2.5s forwards;pointer-events:none;}
+        @keyframes notifIn{from{opacity:0;transform:translateX(-50%) translateY(-20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+        @keyframes notifOut{from{opacity:1;}to{opacity:0;}}
         @media(max-width:768px){.grid-2{grid-template-columns:1fr;}.grid-3{grid-template-columns:repeat(2,1fr);}.timer-circle{width:110px;height:110px;font-size:2.2rem;border-width:4px;}.room-code-display{font-size:1.4rem;letter-spacing:3px;padding:10px 20px;}}
     </style>
 </head>
@@ -368,6 +371,91 @@
             {q:'تاج ملكي...',opts:['👑 ضعه','🙅 ارفضه'],rewards:[5,-2],type:'royal'},
             {q:'خريطة كنز...',opts:['🗺️ اتبعها','🔥 احرقها'],rewards:[4,-1],type:'treasure'},
             {q:'سلم إلى السماء...',opts:['🪜 اصعد','🧍 ابقَ'],rewards:[4,0],type:'ascension'},
+            {q:'قنبلة موقوتة!',opts:['💣 قطع الأسلاك','🏃 اركض'],rewards:[6,-4],type:'reaction'},
+            {q:'دجاجة تطلب مساعدة!',opts:['🐔 ساعدها','🍗 تجاهلها'],rewards:[2,1],type:'funny'},
+            {q:'مرآة سحرية... من الأجمل؟',opts:['😎 أنا طبعاً','🤷 لا أحد'],rewards:[1,-1],type:'funny'},
+            {q:'شبح في القلعة!',opts:['👻 واجهه','😱 اهرب'],rewards:[4,-2],type:'scary'},
+            {q:'قطة تتكلم...',opts:['🐱 استمع لها','🙉 تجاهل'],rewards:[3,0],type:'magic'},
+            {q:'ديناصور في الحديقة!',opts:['🦕 روضه','🚙 اهرب'],rewards:[7,-3],type:'funny'},
+            {q:'روبوت يطلب وظيفة!',opts:['🤖 وافق','👨‍💼 ارفض'],rewards:[2,2],type:'funny'},
+            {q:'حذاء سحري يجعلك ترقص!',opts:['👞 ارقص','🧦 اخلعه'],rewards:[1,3],type:'funny'},
+            {q:'بيتزا مجانية!',opts:['🍕 كلها','🤢 ارميها'],rewards:[4,0],type:'funny'},
+            {q:'قلم يرسم المستقبل!',opts:['✏️ ارسم','📄 مزق الورقة'],rewards:[5,-1],type:'magic'},
+            {q:'كرة قدم ذهبية!',opts:['⚽ سدد','🥅 دافع'],rewards:[3,2],type:'sport'},
+            {q:'سيارة سباق معطلة!',opts:['🔧 اصلحها','🏁 ادفعها'],rewards:[4,1],type:'sport'},
+            {q:'سفينة فضائية!',opts:['🚀 اصعد','🌍 ابق'],rewards:[8,-5],type:'scifi'},
+            {q:'وحش البحيرة!',opts:['🐊 قاتل','🚣 اهرب'],rewards:[5,-2],type:'adventure'},
+            {q:'كنز القراصنة!',opts:['💎 افتح الصندوق','☠️ اتركه'],rewards:[6,-3],type:'treasure'},
+            {q:'مومياء تستيقظ!',opts:['🧻 فك اللفائف','🏃 اركض'],rewards:[3,1],type:'scary'},
+            {q:'تنين في السماء!',opts:['🐉 طير معه','🏹 حاربه'],rewards:[7,-4],type:'fantasy'},
+            {q:'قبعة التخفي!',opts:['🎩 البسها','🧢 لا تلبسها'],rewards:[4,0],type:'magic'},
+            {q:'نهر من الشوكولاتة!',opts:['🍫 اشرب','🤿 اغطس'],rewards:[5,2],type:'funny'},
+            {q:'شجرة نقود!',opts:['🌳 هزها','🪓 اقطعها'],rewards:[6,-1],type:'treasure'},
+            {q:'سجادة طائرة!',opts:['🕌 اركبها','🚶 امشِ'],rewards:[5,1],type:'magic'},
+            {q:'مصباح سحري!',opts:['🧞 افركه','🗑️ ارميه'],rewards:[7,-3],type:'magic'},
+            {q:'قفزة في الفراغ!',opts:['🪂 اقفز','🤸 تراجع'],rewards:[6,-2],type:'adventure'},
+            {q:'اختبار ذكاء!',opts:['🧠 فكر','🤷 خمن'],rewards:[3,0],type:'puzzle'},
+            {q:'متاهة لا نهائية!',opts:['🗺️ ادخل','🧭 ارجع'],rewards:[4,-1],type:'exploration'},
+            {q:'زومبي في المدرسة!',opts:['🧟 قاتل','📚 اختبئ'],rewards:[5,-2],type:'scary'},
+            {q:'مصعد للفضاء!',opts:['🛗 اصعد','🏃 انزل'],rewards:[6,-3],type:'scifi'},
+            {q:'حلوى سحرية!',opts:['🍬 كل','🤮 ابصق'],rewards:[2,3],type:'funny'},
+            {q:'طائرة ورقية عملاقة!',opts:['🪁 طيرها','✂️ اقطع خيطها'],rewards:[4,1],type:'funny'},
+            {q:'جسر من الزجاج!',opts:['🌉 اعبر','🏊 اسبح'],rewards:[3,2],type:'adventure'},
+            {q:'قمر اصطناعي!',opts:['🛰️ اصلحه','📡 اتصل بالأرض'],rewards:[5,1],type:'scifi'},
+            {q:'بطريق ضائع!',opts:['🐧 ساعده','❄️ تجاهله'],rewards:[2,1],type:'funny'},
+            {q:'قفل غامض!',opts:['🔐 حاول فتحه','🔨 اكسره'],rewards:[4,0],type:'puzzle'},
+            {q:'ساعة توقف الزمن!',opts:['⏱️ أوقفها','⌚ تجاهلها'],rewards:[6,-4],type:'magic'},
+            {q:'غوريلا عملاقة!',opts:['🦍 صادقها','🍌 اطعمها'],rewards:[5,3],type:'adventure'},
+            {q:'مظلة معكوسة!',opts:['☂️ افتحها','🌂 ارميها'],rewards:[2,2],type:'funny'},
+            {q:'حاسوب المستقبل!',opts:['💻 شغله','🔌 افصله'],rewards:[4,1],type:'scifi'},
+            {q:'بوصلة لا تشير للشمال!',opts:['🧭 اتبعها','🗺️ تجاهلها'],rewards:[3,2],type:'exploration'},
+            {q:'عطر الحظ!',opts:['🌸 استخدمه','🗑️ ارميه'],rewards:[5,-1],type:'magic'},
+            {q:'قارب ورقي!',opts:['⛵ اركبه','💧 اغرقه'],rewards:[1,3],type:'funny'},
+            {q:'كرة ثلج سحرية!',opts:['🌨️ هزها','🔥 أذبها'],rewards:[4,0],type:'magic'},
+            {q:'ثعبان يتكلم!',opts:['🐍 استمع','😱 اهرب'],rewards:[3,1],type:'scary'},
+            {q:'بذور عملاقة!',opts:['🌱 ازرع','🍞 كل'],rewards:[5,2],type:'funny'},
+            {q:'دراجة هوائية تطير!',opts:['🚲 قدها','🛴 اتركها'],rewards:[4,1],type:'funny'},
+            {q:'نافذة لعالم آخر!',opts:['🪟 افتح','🧱 اغلق'],rewards:[7,-3],type:'scifi'},
+            {q:'ميكروفون الحقيقة!',opts:['🎤 تحدث','🤐 اصمت'],rewards:[3,2],type:'social'},
+            {q:'قبعة التفكير!',opts:['🎓 البسها','🧢 لا تلبسها'],rewards:[4,0],type:'puzzle'},
+            {q:'أرجوحة عملاقة!',opts:['🎡 اركب','🤸 اقفز'],rewards:[2,2],type:'funny'},
+            {q:'خاتم الاختفاء!',opts:['💍 البسه','👀 تجاهله'],rewards:[5,-2],type:'magic'},
+            {q:'بئر الأمنيات!',opts:['🪣 تمنى','🕳️ ابصق'],rewards:[6,-1],type:'magic'},
+            {q:'كتاب ناطق!',opts:['📚 اقرأ','🤫 اسكته'],rewards:[3,1],type:'magic'},
+            {q:'مفتاح كل الأبواب!',opts:['🔑 استخدمه','🔒 اتركه'],rewards:[5,0],type:'treasure'},
+            {q:'ريشة تكتب لوحدها!',opts:['🖋️ دعها تكتب','✍️ امسكها'],rewards:[4,1],type:'magic'},
+            {q:'معطف مقاوم للرصاص!',opts:['🧥 البسه','👕 لا تلبسه'],rewards:[3,2],type:'tactical'},
+            {q:'آلة الزمن!',opts:['⏰ سافر','🚫 ابق'],rewards:[8,-5],type:'scifi'},
+            {q:'حديقة ديناصورات!',opts:['🦖 ادخل','🚪 ارجع'],rewards:[6,-3],type:'adventure'},
+            {q:'شلال ذهبي!',opts:['💧 اشرب','🏊 اسبح'],rewards:[5,3],type:'treasure'},
+            {q:'قفص أسد!',opts:['🦁 افتح','🔒 اترك'],rewards:[4,-2],type:'scary'},
+            {q:'تلفاز يظهر المستقبل!',opts:['📺 شاهد','🔌 اغلقه'],rewards:[3,1],type:'scifi'},
+            {q:'أفعوانية في الفضاء!',opts:['🎢 اركب','🚀 لا تركب'],rewards:[5,2],type:'funny'},
+            {q:'غواصة في الصحراء!',opts:['🛥️ ادخل','🐪 ارجع'],rewards:[2,2],type:'funny'},
+            {q:'مكعب روبيك سحري!',opts:['🧩 حل','🔨 اكسر'],rewards:[4,0],type:'puzzle'},
+            {q:'قوس قزح صالح للأكل!',opts:['🌈 كل','🤮 تجاهل'],rewards:[3,2],type:'funny'},
+            {q:'جبل من القطن!',opts:['☁️ تسلق','🧗 ارجع'],rewards:[2,1],type:'funny'},
+            {q:'مخلوق فضائي لطيف!',opts:['👽 صادقه','👾 اهرب'],rewards:[4,3],type:'scifi'},
+            {q:'بيضة تنين!',opts:['🥚 احتفظ بها','🍳 اطبخها'],rewards:[6,-2],type:'fantasy'},
+            {q:'قناع البطل الخارق!',opts:['🦸 البسه','🦹 لا تلبسه'],rewards:[5,1],type:'hero'},
+            {q:'رذاذ التقلص!',opts:['🔬 استخدمه','🤚 لا تلمسه'],rewards:[4,0],type:'scifi'},
+            {q:'حذاء السرعة!',opts:['👟 البسه','🥿 لا تلبسه'],rewards:[5,2],type:'hero'},
+            {q:'جرعة الحب!',opts:['❤️ اشرب','💔 اسكب'],rewards:[3,3],type:'social'},
+            {q:'قبعة التخاطر!',opts:['🧠 البسها','🧢 لا تلبسها'],rewards:[4,1],type:'magic'},
+            {q:'نظارات الليزر!',opts:['👓 البسها','🕶️ لا تلبسها'],rewards:[5,-1],type:'scifi'},
+            {q:'قفازات المغناطيس!',opts:['🧲 البسها','🧤 لا تلبسها'],rewards:[4,2],type:'hero'},
+            {q:'حزام الضباب!',opts:['🌫️ البسه','👖 لا تلبسه'],rewards:[3,1],type:'hero'},
+            {q:'خوذة التنين!',opts:['🐲 البسها','⛑️ لا تلبسها'],rewards:[6,-2],type:'fantasy'},
+            {q:'درع الفارس!',opts:['🛡️ البسه','⚔️ لا تلبسه'],rewards:[4,2],type:'hero'},
+            {q:'سيف النور!',opts:['🗡️ استخدمه','🔦 اتركه'],rewards:[5,1],type:'scifi'},
+            {q:'قوس السهم الملتهب!',opts:['🏹 اسحب','🔥 اترك'],rewards:[4,3],type:'hero'},
+            {q:'دراجة نارية كونية!',opts:['🏍️ اركب','🚲 لا تركب'],rewards:[6,2],type:'scifi'},
+            {q:'روبوت طباخ!',opts:['🍲 دعه يطبخ','🙅 ارفض'],rewards:[2,1],type:'scifi'},
+            {q:'نبات يغني!',opts:['🎵 استمع','🌿 اقطعه'],rewards:[3,0],type:'funny'},
+            {q:'سحابة ممطرة حلوى!',opts:['🍭 افتح فمك','☔ اهرب'],rewards:[4,2],type:'funny'},
+            {q:'قلم يمحو الذكريات!',opts:['🖊️ استخدمه','📝 لا تلمسه'],rewards:[3,2],type:'magic'},
+            {q:'مرهم الشجاعة!',opts:['💪 استخدمه','🧴 ارميه'],rewards:[4,1],type:'hero'},
+            {q:'قفاز الحظ!',opts:['🍀 البسه','🧤 لا تلبسه'],rewards:[5,0],type:'magic'},
         ];
 
         function playSound(type) {
@@ -387,6 +475,14 @@
         function showToast(msg, type) {
             const colors = { success:'#00ff88', error:'#ff3344', warning:'#ffb800', info:'#00d4ff' };
             Toastify({ text:msg, duration:3000, gravity:'top', position:'center', backgroundColor:colors[type]||'#333', stopOnFocus:true, style:{ borderRadius:'12px', fontFamily:'inherit', fontWeight:'600' } }).showToast();
+        }
+
+        function showNotification(msg) {
+            const notif = document.createElement('div');
+            notif.className = 'notification-toast';
+            notif.textContent = msg;
+            document.body.appendChild(notif);
+            setTimeout(() => notif.remove(), 3000);
         }
 
         function copyToClipboard(text) {
@@ -471,7 +567,7 @@
         function initUserData(data) {
             const ref = db.collection('users').doc(data.uid);
             ref.get().then(doc => {
-                if (!doc.exists) { // خاصية exists بدون أقواس
+                if (!doc.exists) {
                     ref.set({
                         uid: data.uid, displayName: data.displayName, email: data.email, photoURL: data.photoURL || avatarOptions[0],
                         coins: 100, gems: 0, level: 1, xp: 0, xpMax: 100, rank: 'Bronze', wins: 0, losses: 0, totalGames: 0,
@@ -842,7 +938,8 @@
             gameSecondsLeft = currentRoomData.settings?.roundDuration || 30;
             showScreen('game-screen'); document.getElementById('game-timer').textContent = gameSecondsLeft; document.getElementById('game-timer').classList.remove('timer-urgent');
             if (isHost) { generateAndBroadcastQuestion(); } else { listenForQuestion(); }
-            startGameTimer(); if (Math.random() < 0.3) triggerRandomEvent();
+            startGameTimer(); listenToNotifications();
+            if (Math.random() < 0.3) triggerRandomEvent();
         }
 
         async function generateAndBroadcastQuestion() {
@@ -875,11 +972,22 @@
         function makeMultiplayerChoice(idx, questionData) {
             if (!gameActive) return;
             const reward = questionData.rewards[idx];
+            const currentPlayerName = userData?.displayName || 'لاعب';
             document.getElementById('game-result').style.display = 'block';
-            if (reward > 0) { document.getElementById('game-result').innerHTML = `<h3 class="neon-gold-text">🎉 رائع! ربحت ${reward} عملة!</h3>`; }
-            else { document.getElementById('game-result').innerHTML = `<h3 style="color:var(--neon-red);">😢 خسرت ${Math.abs(reward)} عملة</h3>`; }
-            db.collection('rooms').doc(currentRoomId).update({ [`players.${userData.uid}.score`]: firebase.firestore.FieldValue.increment(reward) });
+            if (reward > 0) {
+                document.getElementById('game-result').innerHTML = `<h3 class="neon-gold-text">🎉 رائع! ربحت ${reward} عملة!</h3>`;
+            } else {
+                document.getElementById('game-result').innerHTML = `<h3 style="color:var(--neon-red);">😢 خسرت ${Math.abs(reward)} عملة</h3>`;
+            }
+            db.collection('rooms').doc(currentRoomId).update({
+                [`players.${userData.uid}.score`]: firebase.firestore.FieldValue.increment(reward)
+            });
             document.querySelectorAll('#game-choices .btn').forEach(b => b.disabled = true);
+            const notifMsg = `⚡ ${currentPlayerName} اختار: ${questionData.opts[idx]}`;
+            db.collection('rooms').doc(currentRoomId).collection('notifications').add({
+                text: notifMsg,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
             if (isHost) { setTimeout(async () => { if (gameActive) await nextMultiplayerRound(); }, 2000); }
         }
 
@@ -933,6 +1041,18 @@
                 { q: `هل تتبرع بـ 5 نقاط لـ ${randomPlayer()}؟`, opts: ['💸 نعم', '💰 لا'], rewards: [5, 3] },
             ];
             return questions[Math.floor(Math.random() * questions.length)];
+        }
+
+        function listenToNotifications() {
+            db.collection('rooms').doc(currentRoomId).collection('notifications')
+                .orderBy('timestamp', 'desc').limit(5)
+                .onSnapshot(snap => {
+                    snap.docChanges().forEach(change => {
+                        if (change.type === 'added') {
+                            showNotification(change.doc.data().text);
+                        }
+                    });
+                });
         }
 
         function endGameLocal() { gameActive = false; clearInterval(gameTimerInterval); showScreen('room-screen'); }
