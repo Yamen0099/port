@@ -268,6 +268,13 @@
                     <button class="btn btn-sm btn-secondary" style="margin-top:5px;width:100%;" onclick="closeModal('avatar-modal')">إغلاق</button>
                 </div>
             </div>
+            <div class="modal-overlay hidden" id="invite-friends-modal">
+                <div class="modal-content glass-card glow-gold">
+                    <h3>دعوة الأصدقاء للغرفة</h3>
+                    <div id="invite-friends-list" style="max-height:250px;overflow-y:auto;"></div>
+                    <button class="btn btn-sm btn-secondary" style="margin-top:10px;width:100%;" onclick="closeModal('invite-friends-modal')">إغلاق</button>
+                </div>
+            </div>
         </div>
         <div id="room-screen" class="screen flex-start">
             <div style="width:100%;max-width:900px;">
@@ -275,6 +282,7 @@
                     <h3>غرفة: <span id="room-code-show" class="neon-gold-text" style="cursor:pointer;" onclick="copyRoomCode()" title="اضغط لنسخ الكود">-----</span></h3>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button class="btn btn-sm btn-primary" id="room-ready-btn" onclick="toggleReady()">✅ جاهز</button>
+                        <button class="btn btn-sm btn-gold" onclick="showInviteFriendsModal()" id="room-invite-btn">📨 دعوة الأصدقاء</button>
                         <button class="btn btn-sm btn-danger" onclick="leaveRoom()">🚪 خروج</button>
                         <button class="btn btn-sm btn-danger" id="room-delete-btn" style="display:none;" onclick="deleteRoom()">🗑️ حذف الغرفة</button>
                     </div>
@@ -312,7 +320,6 @@
         </div>
     </div>
     <script>
-        // ==================== Firebase Config ====================
         const firebaseConfig = {
             apiKey: "AIzaSyCPENmqvXEQI-ImLerGzSokTp5i0Ve7xAk",
             authDomain: "yamen-130e2.firebaseapp.com",
@@ -327,12 +334,11 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
         const rtdb = firebase.database();
-
-        // ==================== State ====================
         let currentUser = null, userData = null, currentLang = 'ar', currentRoomId = null, currentRoomData = null;
         let isHost = false, isReady = false, gameActive = false, gameTimerInterval = null, gameSecondsLeft = 30;
         let gameRound = 0, selectedAvatar = null, soloModeActive = false, lastDecisions = [];
         let gameState = { chaosLevel: 0, totalPlayers: 1, averageScore: 0, round: 0, phase: 'early' };
+        let multiplayerQuestionListener = null;
 
         const avatarOptions = [
             'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix','https://api.dicebear.com/7.x/adventurer/svg?seed=Aneka',
@@ -364,10 +370,9 @@
             {q:'سلم إلى السماء...',opts:['🪜 اصعد','🧍 ابقَ'],rewards:[4,0],type:'ascension'},
         ];
 
-        // ==================== Helper Functions ====================
         function playSound(type) {
             try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const ctx = new(window.AudioContext || window.webkitAudioContext)();
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.connect(gain); gain.connect(ctx.destination);
@@ -401,7 +406,6 @@
         function showLogin() { showScreen('login-screen'); }
         function showRegister() { showScreen('register-screen'); }
 
-        // ==================== Avatar ====================
         function showAvatarPicker() {
             document.getElementById('avatar-picker-container').innerHTML = avatarOptions.map(url =>
                 `<img src="${url}" class="${selectedAvatar===url?'selected':''}" onclick="selectAvatar('${url}')">`
@@ -425,7 +429,6 @@
                 .then(() => { showToast('تم حفظ الصورة! 🎉','success'); closeModal('avatar-modal'); refreshLobby(); });
         }
 
-        // ==================== Auth ====================
         function quickPlayGuest() {
             auth.signInAnonymously().then(r => {
                 currentUser = r.user;
@@ -468,7 +471,7 @@
         function initUserData(data) {
             const ref = db.collection('users').doc(data.uid);
             ref.get().then(doc => {
-                if (!doc.exists) {
+                if (!doc.exists) { // خاصية exists بدون أقواس
                     ref.set({
                         uid: data.uid, displayName: data.displayName, email: data.email, photoURL: data.photoURL || avatarOptions[0],
                         coins: 100, gems: 0, level: 1, xp: 0, xpMax: 100, rank: 'Bronze', wins: 0, losses: 0, totalGames: 0,
@@ -590,20 +593,23 @@
             if (t === 'friends') loadFriendsList();
             if (t === 'leaderboard') loadLeaderboard();
             if (t === 'shop') loadShopItems();
+            if (t === 'rooms') loadRoomsList();
         }
 
-        // ==================== Rooms (Firestore) ====================
-        function createRoom() {
-            if(!userData){ showToast('يرجى تسجيل الدخول أولاً','warning'); return; }
+        async function createRoom() {
+            if (!userData) { showToast('يرجى تسجيل الدخول','warning'); return; }
             const roomCode = Math.random().toString(36).substring(2,8).toUpperCase();
+            const userActiveItems = userData.activeItems || {};
             const roomRef = db.collection('rooms').doc(roomCode);
-            roomRef.set({
+            await roomRef.set({
                 code: roomCode, host: userData.uid, hostName: userData.displayName, hostAvatar: userData.photoURL || '',
-                players: { [userData.uid]: { uid:userData.uid, name:userData.displayName, avatar:userData.photoURL||'', ready:false, isHost:true, score:0 } },
+                players: { [userData.uid]: { uid:userData.uid, name:userData.displayName, avatar:userData.photoURL||'', ready:false, isHost:true, score:0, activeItems: userActiveItems } },
                 playerCount: 1, status: 'waiting', createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                settings: { roundDuration:30, totalRounds:5, eventsEnabled:true }, currentRound: 0
-            }).then(() => { playSound('success'); joinRoom(roomCode, true); showRoomCreatedModal(roomCode); })
-            .catch(e => { showToast('خطأ في إنشاء الغرفة: '+e.message,'error'); });
+                settings: { roundDuration:30, totalRounds:5, eventsEnabled:true }, currentRound:0, currentQuestion: null
+            });
+            playSound('success');
+            joinRoom(roomCode, true);
+            showRoomCreatedModal(roomCode);
         }
 
         function showRoomCreatedModal(roomCode) {
@@ -624,14 +630,16 @@
             }).then(r => { if(r.isConfirmed && r.value) joinRoom(r.value.toUpperCase(), false); });
         }
 
-        function joinRoom(code, asHost) {
-            const roomRef = db.collection('rooms').doc(code);
-            roomRef.get().then(snap => {
-                if (!snap.exists() && !asHost) { showToast('الغرفة غير موجودة','error'); return; }
+        async function joinRoom(code, asHost) {
+            try {
+                const roomRef = db.collection('rooms').doc(code);
+                const snap = await roomRef.get();
+                if (!snap.exists && !asHost) { showToast('الغرفة غير موجودة','error'); return; }
                 currentRoomId = code; isHost = asHost;
                 if (!asHost && userData) {
-                    roomRef.update({
-                        [`players.${userData.uid}`]: { uid:userData.uid, name:userData.displayName, avatar:userData.photoURL||'', ready:false, isHost:false, score:0 },
+                    const userActiveItems = userData.activeItems || {};
+                    await roomRef.update({
+                        [`players.${userData.uid}`]: { uid:userData.uid, name:userData.displayName, avatar:userData.photoURL||'', ready:false, isHost:false, score:0, activeItems: userActiveItems },
                         playerCount: firebase.firestore.FieldValue.increment(1)
                     });
                 }
@@ -642,14 +650,16 @@
                 document.getElementById('room-ready-btn').style.display = asHost ? 'none' : 'inline-flex';
                 document.getElementById('room-start-btn').style.display = asHost ? 'block' : 'none';
                 document.getElementById('room-invite-section').style.display = 'block';
-            }).catch(e => showToast('خطأ: '+e.message,'error'));
+                document.getElementById('room-invite-btn').style.display = asHost ? 'inline-flex' : 'none';
+                updateAllUI();
+            } catch (e) { showToast('خطأ: '+e.message,'error'); }
         }
 
         let currentRoomListener = null;
         function listenToRoom(code) {
             if(currentRoomListener) currentRoomListener();
             currentRoomListener = db.collection('rooms').doc(code).onSnapshot(snap => {
-                if (!snap.exists()) { leaveRoom(); return; }
+                if (!snap.exists) { leaveRoom(); return; }
                 currentRoomData = snap.data();
                 refreshRoomUI();
                 if (currentRoomData.status === 'playing' && !gameActive) startGameForPlayers();
@@ -663,16 +673,16 @@
             if (!currentRoomData) return;
             const players = currentRoomData.players || {};
             const list = document.getElementById('room-players-list');
-            list.innerHTML = '';
-            let count = 0;
-            Object.values(players).forEach(p => {
+            list.innerHTML = ''; let count = 0;
+            Object.entries(players).forEach(([uid, p]) => {
                 count++;
-                const div = document.createElement('div');
-                div.className = 'player-slot';
-                div.setAttribute('data-uid', p.uid);
+                const active = p.activeItems || {};
+                const frameClass = active.frame==='إطار ذهبي'?'frame-golden':active.frame==='إطار مطفي'?'frame-matte':active.frame==='تأثير نيون'?'frame-neon':active.frame==='إطار مخفي'?'frame-hidden':'';
+                const titleBadge = active.title ? `<span class="badge badge-event" style="font-size:0.65rem;padding:2px 6px;">${active.title}</span>` : '';
+                const div = document.createElement('div'); div.className = 'player-slot'; div.setAttribute('data-uid', uid);
                 div.innerHTML = `<span class="${p.isHost?'status-host':(p.ready?'status-ready':'status-not-ready')}" style="width:10px;height:10px;border-radius:50%;"></span>
-                    <img class="avatar avatar-sm" src="${p.avatar||avatarOptions[0]}" alt="avatar">
-                    <span>${p.name||'لاعب'}</span> ${p.isHost?'👑':''}
+                    <img class="avatar avatar-sm ${frameClass}" src="${p.avatar||avatarOptions[0]}" alt="avatar">
+                    <span>${p.name||'لاعب'}</span> ${p.isHost?'👑':''} ${titleBadge}
                     <span style="margin-right:auto;font-size:0.8rem;color:var(--text-dim);">${p.ready?'✅':'⏳'}</span>`;
                 list.appendChild(div);
             });
@@ -684,12 +694,10 @@
             if (deleteBtn) deleteBtn.style.display = isHost ? 'inline-flex' : 'none';
             if (isHost) {
                 document.querySelectorAll('#room-players-list .player-slot').forEach(slot => {
-                    const uid = slot.getAttribute('data-uid');
-                    if (uid && uid !== userData.uid && !slot.querySelector('.kick-btn')) {
-                        const kickBtn = document.createElement('button');
-                        kickBtn.className = 'btn btn-xs btn-danger kick-btn';
-                        kickBtn.textContent = 'طرد';
-                        kickBtn.onclick = (e) => { e.stopPropagation(); kickPlayer(uid); };
+                    const slotUid = slot.getAttribute('data-uid');
+                    if (slotUid && slotUid !== userData.uid && !slot.querySelector('.kick-btn')) {
+                        const kickBtn = document.createElement('button'); kickBtn.className = 'btn btn-xs btn-danger kick-btn'; kickBtn.textContent = 'طرد';
+                        kickBtn.onclick = (e) => { e.stopPropagation(); kickPlayer(slotUid); };
                         slot.appendChild(kickBtn);
                     }
                 });
@@ -724,10 +732,11 @@
         }
 
         function leaveRoom() {
-            if (currentRoomId && userData && !isHost) {
-                db.collection('rooms').doc(currentRoomId).update({ [`players.${userData.uid}`]: firebase.firestore.FieldValue.delete(), playerCount: firebase.firestore.FieldValue.increment(-1) });
+            if (currentRoomId && userData) {
+                if (isHost) db.collection('rooms').doc(currentRoomId).delete();
+                else db.collection('rooms').doc(currentRoomId).update({ [`players.${userData.uid}`]: firebase.firestore.FieldValue.delete(), playerCount: firebase.firestore.FieldValue.increment(-1) });
             }
-            if (isHost && currentRoomId) db.collection('rooms').doc(currentRoomId).delete();
+            if (multiplayerQuestionListener) multiplayerQuestionListener();
             if (currentRoomListener) currentRoomListener();
             currentRoomId = null; currentRoomData = null; isHost = false; isReady = false;
             gameActive = false; clearInterval(gameTimerInterval);
@@ -736,47 +745,41 @@
 
         function quickMatch() {
             db.collection('rooms').where('status','==','waiting').limit(10).get().then(snap => {
-                if (!snap.empty) {
-                    const rooms = []; snap.forEach(doc => rooms.push(doc.id));
-                    joinRoom(rooms[Math.floor(Math.random()*rooms.length)], false);
-                } else createRoom();
+                if (!snap.empty) { const rooms = []; snap.forEach(doc => rooms.push(doc.id)); joinRoom(rooms[Math.floor(Math.random()*rooms.length)], false); }
+                else createRoom();
             });
         }
 
-        // ==================== Chat ====================
-        function sendRoomChat() {
-            if (!currentRoomId || !userData) { showToast('لست في غرفة','error'); return; }
-            const input = document.getElementById('room-chat-input');
-            const msg = input.value.trim();
-            if (!msg) return;
-            const active = userData.activeItems || {};
-            db.collection('rooms').doc(currentRoomId).collection('messages').add({
-                uid: userData.uid, name: userData.displayName, avatar: userData.photoURL || '',
-                frame: active.frame || '', title: active.title || '', text: msg.substring(0,200),
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(e => showToast('فشل الإرسال: '+e.message,'error'));
-            input.value = ''; input.focus();
+        function showInviteFriendsModal() {
+            if (!userData || !currentRoomId) return;
+            db.collection('users').doc(userData.uid).collection('friends').orderBy('addedAt').get().then(snap => {
+                const list = document.getElementById('invite-friends-list');
+                if (snap.empty) { list.innerHTML = '<p style="color:var(--text-dim);text-align:center;">لا يوجد أصدقاء بعد</p>'; }
+                else {
+                    list.innerHTML = '';
+                    snap.forEach(doc => {
+                        const f = doc.data();
+                        const div = document.createElement('div'); div.className = 'friend-slot';
+                        div.innerHTML = `<div style="display:flex;align-items:center;gap:10px;"><img class="avatar avatar-sm" src="${f.avatar||avatarOptions[0]}" alt="avatar"><span>${f.name}</span></div>`;
+                        div.style.cursor = 'pointer';
+                        div.onclick = () => {
+                            copyRoomCode();
+                            closeModal('invite-friends-modal');
+                            showToast('تم نسخ كود الغرفة، شاركه مع ' + f.name, 'success');
+                        };
+                        list.appendChild(div);
+                    });
+                }
+                showModal('invite-friends-modal');
+            });
         }
 
-        function appendRoomChat(msg) {
-            const c = document.getElementById('room-chat-msgs');
-            const d = document.createElement('div'); d.className = 'chat-msg';
-            const frameClass = msg.frame==='إطار ذهبي'?'frame-golden':msg.frame==='إطار مطفي'?'frame-matte':msg.frame==='تأثير نيون'?'frame-neon':msg.frame==='إطار مخفي'?'frame-hidden':'';
-            const avatarHtml = `<img class="avatar avatar-sm ${frameClass}" src="${msg.avatar||avatarOptions[0]}" alt="avatar">`;
-            const titleBadge = msg.title ? `<span class="badge badge-event" style="font-size:0.65rem;padding:2px 6px;">${msg.title}</span>` : '';
-            const timeStr = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit'}) : '';
-            d.innerHTML = `${avatarHtml}<div><div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;"><strong style="font-size:0.8rem;color:var(--neon-purple);">${msg.name}</strong>${titleBadge}<span style="font-size:0.65rem;color:var(--text-dim);">${timeStr}</span></div><span class="msg-content">${msg.text}</span></div>`;
-            c.appendChild(d); c.scrollTop = c.scrollHeight;
-        }
-
-        // ==================== Solo & Game ====================
         function startSoloGame(diff) {
             soloModeActive = true; gameActive = true; gameState.round = 1; gameState.chaosLevel = 0;
             gameSecondsLeft = diff==='extreme'?20:diff==='hard'?25:30;
             currentRoomId = null; currentRoomData = { settings:{ roundDuration:gameSecondsLeft, totalRounds:5 }, players:{} };
-            showScreen('game-screen');
-            document.getElementById('game-timer').textContent = gameSecondsLeft;
-            generateGameQuestion(); startGameTimer(); playSound('event');
+            showScreen('game-screen'); document.getElementById('game-timer').textContent = gameSecondsLeft;
+            generateSoloQuestion(); startGameTimer(); playSound('event');
         }
 
         function generateDynamicDecision() {
@@ -797,60 +800,205 @@
         function generateRandomDecision() { let d; do { d=baseDecisions[Math.floor(Math.random()*baseDecisions.length)]; } while(lastDecisions.includes(d.q)&&lastDecisions.length<baseDecisions.length); const mr=[Math.floor(d.rewards[0]*(0.7+Math.random()*0.6)*(1+gameState.chaosLevel*0.3)),Math.floor(d.rewards[1]*(0.7+Math.random()*0.6)*(1-gameState.chaosLevel*0.2))]; return {...d,rewards:mr}; }
         function generateSocialDecision() { const sq=[{q:'صوّت لإقصاء لاعب!',opts:['🗳️ أوافق','🙅 أرفض'],rewards:[2,-1]},{q:'اختيار لاعب يصبح ملك الجولة!',opts:['👑 أدعم الملك','⚔️ أعارض'],rewards:[3,1]},{q:'تبديل النقاط بين أعلى وأقل لاعب!',opts:['🔄 أوافق','🚫 أرفض'],rewards:[3,-2]},{q:'انقلاب في ترتيب اللاعبين!',opts:['⚡ أشعل الانقلاب','🛡 أدافع عن النظام'],rewards:[3,0]},]; return {...sq[Math.floor(Math.random()*sq.length)],type:'social'}; }
 
-        function generateGameQuestion() { const d=generateDynamicDecision(); document.getElementById('game-question').textContent=d.q; const cd=document.getElementById('game-choices'); cd.innerHTML=''; document.getElementById('game-coins-indicator').innerHTML=`<span class="coins-indicator coins-positive">🪙 +${d.rewards[0]} ~ ${d.rewards[1]}</span>`; d.opts.forEach((o,i)=>{ const b=document.createElement('button'); b.className='btn btn-primary'; b.style.cssText='padding:20px;font-size:1.1rem;min-height:80px;'; b.textContent=o; b.onclick=()=>makeGameChoice(i,d); cd.appendChild(b); }); document.getElementById('game-result').style.display='none'; }
-        function makeGameChoice(idx,d) { if(!gameActive) return; const rd=document.getElementById('game-result'); rd.style.display='block'; const rw=d.rewards[idx]; const ci=document.getElementById('game-coins-indicator'); if(rw>0){ rd.innerHTML=`<h3 class="neon-gold-text">🎉 رائع! ربحت ${rw} عملة!</h3>`; ci.innerHTML=`<span class="coins-indicator coins-positive">🪙 +${rw} عملة</span>`; playSound('success'); } else { rd.innerHTML=`<h3 style="color:var(--neon-red);">😢 خسرت ${Math.abs(rw)} عملة</h3>`; ci.innerHTML=`<span class="coins-indicator coins-negative">🪙 ${rw} عملة</span>`; playSound('error'); } if(userData){ db.collection('users').doc(userData.uid).update({ coins:firebase.firestore.FieldValue.increment(rw), xp:firebase.firestore.FieldValue.increment(Math.abs(rw)*0.1) }); } if(currentRoomId&&userData){ db.collection('rooms').doc(currentRoomId).update({ [`players.${userData.uid}.score`]:firebase.firestore.FieldValue.increment(rw) }); } setTimeout(()=>{ if(gameActive) nextRound(); },2000); }
-        function nextRound() { gameState.round++; gameSecondsLeft=currentRoomData?.settings?.roundDuration||30; document.getElementById('game-timer').textContent=gameSecondsLeft; document.getElementById('game-timer').classList.remove('timer-urgent'); document.getElementById('game-result').style.display='none'; generateGameQuestion(); if(currentRoomId&&isHost) db.collection('rooms').doc(currentRoomId).update({ currentRound:gameState.round }); if(Math.random()<0.25) triggerRandomEvent(); if(gameState.round>(currentRoomData?.settings?.totalRounds||5)){ endGame(); return; } clearInterval(gameTimerInterval); startGameTimer(); }
-        function startGameTimer() { clearInterval(gameTimerInterval); gameTimerInterval=setInterval(()=>{ gameSecondsLeft--; document.getElementById('game-timer').textContent=gameSecondsLeft; if(gameSecondsLeft<=8) document.getElementById('game-timer').classList.add('timer-urgent'); if(gameSecondsLeft<=0){ clearInterval(gameTimerInterval); playSound('error'); document.getElementById('game-result').style.display='block'; document.getElementById('game-result').innerHTML='<h3 style="color:var(--neon-red);">⏰ انتهى الوقت! خسرت 2 عملات</h3>'; document.getElementById('game-coins-indicator').innerHTML='<span class="coins-indicator coins-negative">🪙 -2 عملات</span>'; if(userData) db.collection('users').doc(userData.uid).update({ coins:firebase.firestore.FieldValue.increment(-2) }); setTimeout(()=>{ if(gameActive) nextRound(); },1500); } if(gameSecondsLeft<=5&&gameSecondsLeft>0) playSound('tick'); },1000); }
-        function triggerRandomEvent() { const ev=['🌟 جولة ذهبية! جميع المكافآت مضاعفة!','🌪 حدث الفوضى! القواعد معكوسة!','🌑 تعتيم! اختيارات مخفية!','🍀 يوم الحظ! فرص إضافية!','⚡ عاصفة! الوقت ينفد بسرعة!','👑 ملك الجولة! لاعب عشوائي يحصل على مضاعفة!','🔄 تبديل النقاط! المراكز تتغير!']; document.getElementById('game-event-banner').textContent=ev[Math.floor(Math.random()*ev.length)]; document.getElementById('game-event-banner').style.display='block'; playSound('event'); setTimeout(()=>document.getElementById('game-event-banner').style.display='none',4000); }
-        function endGame() { gameActive=false; clearInterval(gameTimerInterval); playSound('victory'); if(userData){ db.collection('users').doc(userData.uid).update({ totalGames:firebase.firestore.FieldValue.increment(1), wins:firebase.firestore.FieldValue.increment(Math.random()>0.5?1:0), gems:firebase.firestore.FieldValue.increment(1), coins:firebase.firestore.FieldValue.increment(10) }); } Swal.fire({ title:'🏁 انتهى التحدي!',text:'ربحت جوهرة و 10 عملات إضافية!',background:'#0f0f25',color:'#e8e8f0',confirmButtonColor:'#b44dff',icon:'success' }).then(()=>{ if(currentRoomId&&isHost) db.collection('rooms').doc(currentRoomId).update({ status:'waiting' }); showScreen('room-screen'); }); }
-        function endGameLocal() { gameActive=false; clearInterval(gameTimerInterval); showScreen('room-screen'); }
-        function leaveGame() { gameActive=false; clearInterval(gameTimerInterval); if(soloModeActive){ soloModeActive=false; showScreen('lobby-screen'); return; } showScreen('room-screen'); }
+        function generateSoloQuestion() {
+            const decision = generateDynamicDecision();
+            document.getElementById('game-question').textContent = decision.q;
+            const choicesDiv = document.getElementById('game-choices'); choicesDiv.innerHTML = '';
+            document.getElementById('game-coins-indicator').innerHTML = `<span class="coins-indicator coins-positive">🪙 +${decision.rewards[0]} ~ ${decision.rewards[1]}</span>`;
+            decision.opts.forEach((opt, i) => {
+                const btn = document.createElement('button'); btn.className = 'btn btn-primary'; btn.style.cssText = 'padding:20px;font-size:1.1rem;min-height:80px;'; btn.textContent = opt;
+                btn.onclick = () => makeSoloChoice(i, decision); choicesDiv.appendChild(btn);
+            });
+            document.getElementById('game-result').style.display = 'none';
+        }
 
-        // ==================== Friends ====================
-        function addFriend() {
-            if (!userData) return;
-            const sv = document.getElementById('friend-search-input').value.trim();
-            if (!sv) return;
-            const query = sv.includes('@') ? db.collection('users').where('email','==',sv).limit(1) : db.collection('users').where('displayName','==',sv).limit(1);
-            query.get().then(snap => {
-                if (snap.empty) { showToast('لم يتم العثور على المستخدم','error'); return; }
-                const friendDoc = snap.docs[0];
-                if (friendDoc.id === userData.uid) { showToast('لا يمكنك إضافة نفسك','warning'); return; }
-                db.collection('users').doc(userData.uid).collection('friends').doc(friendDoc.id).set({
-                    uid: friendDoc.id, name: friendDoc.data().displayName, avatar: friendDoc.data().photoURL || '',
-                    addedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }).then(() => { showToast('تمت إضافة الصديق','success'); document.getElementById('friend-search-input').value = ''; loadFriendsList(); });
+        function makeSoloChoice(idx, decision) {
+            if (!gameActive) return;
+            const reward = decision.rewards[idx];
+            document.getElementById('game-result').style.display = 'block';
+            if (reward > 0) { document.getElementById('game-result').innerHTML = `<h3 class="neon-gold-text">🎉 رائع! ربحت ${reward} عملة!</h3>`; }
+            else { document.getElementById('game-result').innerHTML = `<h3 style="color:var(--neon-red);">😢 خسرت ${Math.abs(reward)} عملة</h3>`; }
+            if (userData) db.collection('users').doc(userData.uid).update({ coins: firebase.firestore.FieldValue.increment(reward), xp: firebase.firestore.FieldValue.increment(Math.abs(reward)*0.1) });
+            setTimeout(() => { if (gameActive) nextSoloRound(); }, 2000);
+        }
+
+        function nextSoloRound() {
+            gameState.round++;
+            const totalRounds = currentRoomData?.settings?.totalRounds || 5;
+            if (gameState.round > totalRounds) { endSoloGame(); return; }
+            gameSecondsLeft = currentRoomData?.settings?.roundDuration || 30;
+            document.getElementById('game-timer').textContent = gameSecondsLeft; document.getElementById('game-timer').classList.remove('timer-urgent'); document.getElementById('game-result').style.display = 'none';
+            generateSoloQuestion(); clearInterval(gameTimerInterval); startGameTimer();
+        }
+
+        function endSoloGame() {
+            gameActive = false; clearInterval(gameTimerInterval); playSound('victory');
+            if (userData) db.collection('users').doc(userData.uid).update({ totalGames: firebase.firestore.FieldValue.increment(1), gems: firebase.firestore.FieldValue.increment(1), coins: firebase.firestore.FieldValue.increment(10) });
+            Swal.fire({ title:'🏁 انتهى التحدي الفردي!', text:'ربحت جوهرة و 10 عملات إضافية!', background:'#0f0f25', color:'#e8e8f0', confirmButtonColor:'#b44dff' }).then(() => { soloModeActive = false; showScreen('lobby-screen'); });
+        }
+
+        function startGameForPlayers() {
+            gameActive = true; gameState.round = currentRoomData.currentRound || 1; gameState.chaosLevel = 0;
+            gameSecondsLeft = currentRoomData.settings?.roundDuration || 30;
+            showScreen('game-screen'); document.getElementById('game-timer').textContent = gameSecondsLeft; document.getElementById('game-timer').classList.remove('timer-urgent');
+            if (isHost) { generateAndBroadcastQuestion(); } else { listenForQuestion(); }
+            startGameTimer(); if (Math.random() < 0.3) triggerRandomEvent();
+        }
+
+        async function generateAndBroadcastQuestion() {
+            if (!isHost || !gameActive) return;
+            const questionData = await generateMultiplayerQuestion();
+            await db.collection('rooms').doc(currentRoomId).update({ currentQuestion: questionData });
+            displayMultiplayerQuestion(questionData);
+        }
+
+        function listenForQuestion() {
+            if (multiplayerQuestionListener) multiplayerQuestionListener();
+            multiplayerQuestionListener = db.collection('rooms').doc(currentRoomId).onSnapshot(snap => {
+                if (!gameActive || isHost) return;
+                const data = snap.data();
+                if (data && data.currentQuestion) displayMultiplayerQuestion(data.currentQuestion);
             });
         }
 
-        function loadFriendsList() {
-            if (!userData) return;
-            db.collection('users').doc(userData.uid).collection('friends').orderBy('addedAt').get().then(snap => {
-                const list = document.getElementById('friends-list');
-                if (snap.empty) { list.innerHTML = '<p style="color:var(--text-dim);text-align:center;">لا أصدقاء بعد</p>'; return; }
+        function displayMultiplayerQuestion(questionData) {
+            document.getElementById('game-question').textContent = questionData.q;
+            const choicesDiv = document.getElementById('game-choices'); choicesDiv.innerHTML = '';
+            document.getElementById('game-coins-indicator').innerHTML = `<span class="coins-indicator coins-positive">🪙 +${questionData.rewards[0]} ~ ${questionData.rewards[1]}</span>`;
+            questionData.opts.forEach((opt, i) => {
+                const btn = document.createElement('button'); btn.className = 'btn btn-primary'; btn.style.cssText = 'padding:20px;font-size:1.1rem;min-height:80px;'; btn.textContent = opt;
+                btn.onclick = () => makeMultiplayerChoice(i, questionData); choicesDiv.appendChild(btn);
+            });
+            document.getElementById('game-result').style.display = 'none';
+        }
+
+        function makeMultiplayerChoice(idx, questionData) {
+            if (!gameActive) return;
+            const reward = questionData.rewards[idx];
+            document.getElementById('game-result').style.display = 'block';
+            if (reward > 0) { document.getElementById('game-result').innerHTML = `<h3 class="neon-gold-text">🎉 رائع! ربحت ${reward} عملة!</h3>`; }
+            else { document.getElementById('game-result').innerHTML = `<h3 style="color:var(--neon-red);">😢 خسرت ${Math.abs(reward)} عملة</h3>`; }
+            db.collection('rooms').doc(currentRoomId).update({ [`players.${userData.uid}.score`]: firebase.firestore.FieldValue.increment(reward) });
+            document.querySelectorAll('#game-choices .btn').forEach(b => b.disabled = true);
+            if (isHost) { setTimeout(async () => { if (gameActive) await nextMultiplayerRound(); }, 2000); }
+        }
+
+        async function nextMultiplayerRound() {
+            gameState.round++;
+            const totalRounds = currentRoomData?.settings?.totalRounds || 5;
+            if (gameState.round > totalRounds) { await endMultiplayerGame(); return; }
+            gameSecondsLeft = currentRoomData?.settings?.roundDuration || 30;
+            document.getElementById('game-timer').textContent = gameSecondsLeft; document.getElementById('game-timer').classList.remove('timer-urgent'); document.getElementById('game-result').style.display = 'none';
+            await db.collection('rooms').doc(currentRoomId).update({ currentRound: gameState.round });
+            clearInterval(gameTimerInterval); startGameTimer();
+            await generateAndBroadcastQuestion();
+        }
+
+        function startGameTimer() {
+            clearInterval(gameTimerInterval);
+            gameTimerInterval = setInterval(async () => {
+                gameSecondsLeft--; document.getElementById('game-timer').textContent = gameSecondsLeft;
+                if (gameSecondsLeft <= 8) document.getElementById('game-timer').classList.add('timer-urgent');
+                if (gameSecondsLeft <= 0) {
+                    clearInterval(gameTimerInterval); playSound('error');
+                    document.getElementById('game-result').style.display = 'block';
+                    document.getElementById('game-result').innerHTML = '<h3 style="color:var(--neon-red);">⏰ انتهى الوقت! خسرت 2 عملات</h3>';
+                    if (userData) db.collection('users').doc(userData.uid).update({ coins: firebase.firestore.FieldValue.increment(-2) });
+                    if (isHost) { setTimeout(async () => { if (gameActive) await nextMultiplayerRound(); }, 1500); }
+                }
+                if (gameSecondsLeft <= 5 && gameSecondsLeft > 0) playSound('tick');
+            }, 1000);
+        }
+
+        async function endMultiplayerGame() {
+            gameActive = false; clearInterval(gameTimerInterval); if (multiplayerQuestionListener) multiplayerQuestionListener();
+            playSound('victory');
+            const players = currentRoomData.players;
+            let winnerUid = null, highestScore = -Infinity;
+            Object.entries(players).forEach(([uid, p]) => { if (p.score > highestScore) { highestScore = p.score; winnerUid = uid; } });
+            const winnerName = players[winnerUid]?.name || 'غير معروف';
+            Swal.fire({ title:'🏆 انتهى التحدي!', html:`<div style="font-size:2rem;">🎉</div><h2 style="color:var(--neon-gold);">الفائز: ${winnerName}</h2><p>برصيد ${highestScore} نقطة!</p>`, background:'#0f0f25', color:'#e8e8f0', confirmButtonColor:'#b44dff', confirmButtonText:'عودة إلى الغرفة' }).then(() => { if (isHost) db.collection('rooms').doc(currentRoomId).update({ status:'waiting', currentQuestion: null }); showScreen('room-screen'); });
+            if (userData) db.collection('users').doc(userData.uid).update({ totalGames: firebase.firestore.FieldValue.increment(1), wins: firebase.firestore.FieldValue.increment(winnerUid === userData.uid ? 1 : 0), gems: firebase.firestore.FieldValue.increment(1), coins: firebase.firestore.FieldValue.increment(10) });
+        }
+
+        async function generateMultiplayerQuestion() {
+            const players = currentRoomData.players;
+            const playerNames = Object.values(players).map(p => p.name);
+            const randomPlayer = () => playerNames[Math.floor(Math.random() * playerNames.length)];
+            const questions = [
+                { q: `هل تمنح 10 نقاط لـ ${randomPlayer()}؟`, opts: ['👍 نعم', '👎 لا'], rewards: [10, -2] },
+                { q: `صوّت لطرد ${randomPlayer()} من الجولة!`, opts: ['🗳️ أوافق', '🙅 أرفض'], rewards: [5, -5] },
+                { q: `${randomPlayer()} يحتاج مساعدة، هل تساعده؟`, opts: ['🤝 أساعد', '🚫 أتجاهل'], rewards: [8, 2] },
+                { q: `تحدى ${randomPlayer()} في مبارزة نقاط!`, opts: ['⚔️ أتحدى', '🛡️ أتراجع'], rewards: [12, -4] },
+                { q: `هل تتبرع بـ 5 نقاط لـ ${randomPlayer()}؟`, opts: ['💸 نعم', '💰 لا'], rewards: [5, 3] },
+            ];
+            return questions[Math.floor(Math.random() * questions.length)];
+        }
+
+        function endGameLocal() { gameActive = false; clearInterval(gameTimerInterval); showScreen('room-screen'); }
+        function leaveGame() { gameActive = false; clearInterval(gameTimerInterval); if (soloModeActive) { soloModeActive = false; showScreen('lobby-screen'); return; } showScreen('room-screen'); }
+        function triggerRandomEvent() { const events = ['🌟 جولة ذهبية! جميع المكافآت مضاعفة!','🌪 حدث الفوضى! القواعد معكوسة!','🌑 تعتيم! اختيارات مخفية!','🍀 يوم الحظ! فرص إضافية!','⚡ عاصفة! الوقت ينفد بسرعة!','👑 ملك الجولة! لاعب عشوائي يحصل على مضاعفة!','🔄 تبديل النقاط! المراكز تتغير!']; document.getElementById('game-event-banner').textContent = events[Math.floor(Math.random()*events.length)]; document.getElementById('game-event-banner').style.display = 'block'; playSound('event'); setTimeout(() => document.getElementById('game-event-banner').style.display = 'none', 4000); }
+
+        function sendRoomChat() {
+            if (!currentRoomId || !userData) { showToast('لست في غرفة','error'); return; }
+            const input = document.getElementById('room-chat-input'); const msg = input.value.trim(); if (!msg) return;
+            const active = userData.activeItems || {};
+            db.collection('rooms').doc(currentRoomId).collection('messages').add({
+                uid: userData.uid, name: userData.displayName, avatar: userData.photoURL || '',
+                frame: active.frame || '', title: active.title || '', text: msg.substring(0,200),
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            }).catch(e => showToast('فشل الإرسال: '+e.message,'error'));
+            input.value = ''; input.focus();
+        }
+
+        function appendRoomChat(msg) {
+            const c = document.getElementById('room-chat-msgs'); const d = document.createElement('div'); d.className = 'chat-msg';
+            const frameClass = msg.frame==='إطار ذهبي'?'frame-golden':msg.frame==='إطار مطفي'?'frame-matte':msg.frame==='تأثير نيون'?'frame-neon':msg.frame==='إطار مخفي'?'frame-hidden':'';
+            const avatarHtml = `<img class="avatar avatar-sm ${frameClass}" src="${msg.avatar||avatarOptions[0]}" alt="avatar">`;
+            const titleBadge = msg.title ? `<span class="badge badge-event" style="font-size:0.65rem;padding:2px 6px;">${msg.title}</span>` : '';
+            const timeStr = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit'}) : '';
+            d.innerHTML = `${avatarHtml}<div><div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;"><strong style="font-size:0.8rem;color:var(--neon-purple);">${msg.name}</strong>${titleBadge}<span style="font-size:0.65rem;color:var(--text-dim);">${timeStr}</span></div><span class="msg-content">${msg.text}</span></div>`;
+            c.appendChild(d); c.scrollTop = c.scrollHeight;
+        }
+
+        function loadRoomsList() {
+            db.collection('rooms').where('status','==','waiting').limit(10).get().then(snap => {
+                const list = document.getElementById('room-list');
+                if (snap.empty) { list.innerHTML = '<p style="color:var(--text-dim);text-align:center;">لا توجد غرف</p>'; return; }
                 list.innerHTML = '';
                 snap.forEach(doc => {
-                    const f = doc.data();
-                    const div = document.createElement('div'); div.className = 'friend-slot';
-                    div.innerHTML = `<div style="display:flex;align-items:center;gap:10px;"><img class="avatar avatar-sm" src="${f.avatar||avatarOptions[0]}" alt="avatar"><span>${f.name}</span></div>
-                        <div><button class="btn btn-xs btn-primary" onclick="inviteFriendToRoom('${f.uid}')">دعوة</button>
-                        <button class="btn btn-xs btn-danger" onclick="removeFriend('${f.uid}')">حذف</button></div>`;
+                    const r = doc.data();
+                    const div = document.createElement('div'); div.className = 'player-slot'; div.style.marginBottom = '6px';
+                    div.innerHTML = `<span>🏠 ${r.code}</span><span>👑 ${r.hostName||'مضيف'}</span><span style="margin-right:auto;">👥 ${r.playerCount||0}</span><span class="badge badge-online">انتظار</span>`;
+                    div.style.cursor = 'pointer';
+                    div.onclick = (e) => {
+                        if (e.target.tagName === 'BUTTON') return;
+                        joinRoom(r.code, false);
+                    };
+                    if (userData && r.host === userData.uid) {
+                        const delBtn = document.createElement('button');
+                        delBtn.className = 'btn btn-xs btn-danger';
+                        delBtn.textContent = '🗑️ حذف';
+                        delBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            Swal.fire({ title:'حذف الغرفة؟', text:`هل أنت متأكد من حذف غرفة ${r.code}؟`, icon:'warning', showCancelButton:true, confirmButtonColor:'#ff3344', cancelButtonColor:'#555', confirmButtonText:'حذف', cancelButtonText:'إلغاء' })
+                            .then(res => { if(res.isConfirmed) db.collection('rooms').doc(r.code).delete().then(() => { showToast('تم حذف الغرفة','success'); loadRoomsList(); }); });
+                        };
+                        div.appendChild(delBtn);
+                    }
                     list.appendChild(div);
                 });
             });
         }
 
-        function removeFriend(friendUid) {
-            Swal.fire({ title:'حذف الصديق؟', text:'لن تتمكن من دعوته بسهولة.', icon:'question', showCancelButton:true, confirmButtonColor:'#ff3344', cancelButtonColor:'#555', confirmButtonText:'حذف', cancelButtonText:'إلغاء' })
-            .then(res => { if(res.isConfirmed) db.collection('users').doc(userData.uid).collection('friends').doc(friendUid).delete().then(()=>{ showToast('تم حذف الصديق','success'); loadFriendsList(); }); });
+        function loadLeaderboard() {
+            db.collection('users').orderBy('wins','desc').limit(20).get().then(snap => {
+                const list = document.getElementById('leaderboard-list'); let html = ''; let i = 1;
+                snap.forEach(doc => { const d = doc.data(); html += `<div class="player-slot" style="margin-bottom:6px;"><span style="font-size:1.3rem;">${i===1?'🥇':i===2?'🥈':i===3?'🥉':i}</span><img class="avatar avatar-sm" src="${d.photoURL||avatarOptions[0]}" alt="avatar"><span>${d.displayName||'لاعب'}</span><span style="margin-right:auto;color:var(--neon-gold);">🏆 ${d.wins||0}</span></div>`; i++; });
+                list.innerHTML = html || '<p style="color:var(--text-dim);">لا بيانات</p>';
+            });
         }
 
-        function inviteFriendToRoom(friendUid) {
-            if (!currentRoomId) { showToast('أنشئ غرفة أولاً','warning'); return; }
-            copyRoomCode(); showToast('تم نسخ كود الغرفة، شاركه مع صديقك!','success');
-        }
-
-        // ==================== Shop & Leaderboard ====================
         function loadShopItems() {
             const items = [
                 { name:'إطار ذهبي', icon:'🖼️', price:10000, currency:'coins', type:'frame' },
@@ -861,11 +1009,7 @@
                 { name:'إطار مطفي', icon:'⬛', price:7000, currency:'coins', type:'frame' },
             ];
             document.getElementById('shop-items').innerHTML = items.map(item =>
-                `<div class="glass-card" style="text-align:center;cursor:pointer;" onclick="buyItem('${item.name}',${item.price},'${item.currency}','${item.type}')">
-                    <div style="font-size:3rem;">${item.icon}</div><strong>${item.name}</strong>
-                    <p style="color:var(--text-dim);">${item.price} ${item.currency==='coins'?'🪙':'💎'}</p>
-                    <button class="btn btn-sm btn-primary">شراء</button>
-                </div>`
+                `<div class="glass-card" style="text-align:center;cursor:pointer;" onclick="buyItem('${item.name}',${item.price},'${item.currency}','${item.type}')"><div style="font-size:3rem;">${item.icon}</div><strong>${item.name}</strong><p style="color:var(--text-dim);">${item.price} ${item.currency==='coins'?'🪙':'💎'}</p><button class="btn btn-sm btn-primary">شراء</button></div>`
             ).join('');
         }
 
@@ -873,124 +1017,49 @@
             if (!userData) { showToast('يرجى تسجيل الدخول','warning'); return; }
             const cur = currency === 'coins' ? (userData.coins||0) : (userData.gems||0);
             if (cur < price) { showToast('رصيد غير كافٍ! 😢','error'); return; }
-            Swal.fire({
-                title:'تأكيد الشراء', text:`شراء "${name}" بـ ${price} ${currency==='coins'?'🪙 عملة':'💎 جوهرة'}؟`,
-                background:'#0f0f25', color:'#e8e8f0', showCancelButton:true, confirmButtonColor:'#b44dff', cancelButtonColor:'#444',
-                confirmButtonText:'نعم اشتري', cancelButtonText:'لا'
-            }).then(r => {
-                if (r.isConfirmed) {
-                    const upd = {};
-                    upd[currency] = firebase.firestore.FieldValue.increment(-price);
-                    upd.inventory = firebase.firestore.FieldValue.arrayUnion(name);
-                    const active = userData.activeItems || {};
-                    const typeMap = { 'إطار ذهبي':'frame','إطار مطفي':'frame','لقب VIP':'title','تأثير نيون':'effect','أيقونة نادرة':'icon','جلد أسطوري':'skin' };
-                    const mappedType = typeMap[name] || 'other';
-                    Object.keys(active).forEach(k => { if (typeMap[active[k]] === mappedType) delete active[k]; });
-                    active[mappedType] = name;
-                    upd.activeItems = active;
-                    db.collection('users').doc(userData.uid).update(upd).then(() => {
-                        playSound('success'); showToast('تم الشراء والتفعيل! 🎉','success'); refreshLobby();
-                    });
-                }
-            });
+            Swal.fire({ title:'تأكيد الشراء', text:`شراء "${name}" بـ ${price} ${currency==='coins'?'🪙 عملة':'💎 جوهرة'}؟`, background:'#0f0f25', color:'#e8e8f0', showCancelButton:true, confirmButtonColor:'#b44dff', cancelButtonColor:'#444', confirmButtonText:'نعم اشتري', cancelButtonText:'لا' }).then(r => { if(r.isConfirmed) {
+                const upd = {}; upd[currency] = firebase.firestore.FieldValue.increment(-price); upd.inventory = firebase.firestore.FieldValue.arrayUnion(name);
+                const active = userData.activeItems || {}; const typeMap = { 'إطار ذهبي':'frame','إطار مطفي':'frame','لقب VIP':'title','تأثير نيون':'effect','أيقونة نادرة':'icon','جلد أسطوري':'skin' }; const mappedType = typeMap[name] || 'other';
+                Object.keys(active).forEach(k => { if (typeMap[active[k]] === mappedType) delete active[k]; }); active[mappedType] = name; upd.activeItems = active;
+                db.collection('users').doc(userData.uid).update(upd).then(() => { playSound('success'); showToast('تم الشراء والتفعيل! 🎉','success'); refreshLobby(); });
+            }});
         }
 
-        function loadLeaderboard() {
-            db.collection('users').orderBy('wins','desc').limit(20).get().then(snap => {
-                const list = document.getElementById('leaderboard-list');
-                let html = ''; let i = 1;
-                snap.forEach(doc => {
-                    const d = doc.data();
-                    html += `<div class="player-slot" style="margin-bottom:6px;"><span style="font-size:1.3rem;">${i===1?'🥇':i===2?'🥈':i===3?'🥉':i}</span><img class="avatar avatar-sm" src="${d.photoURL||avatarOptions[0]}" alt="avatar"><span>${d.displayName||'لاعب'}</span><span style="margin-right:auto;color:var(--neon-gold);">🏆 ${d.wins||0}</span></div>`;
-                    i++;
-                });
-                list.innerHTML = html || '<p style="color:var(--text-dim);">لا بيانات</p>';
-            });
+        function addFriend() {
+            if (!userData) return; const sv = document.getElementById('friend-search-input').value.trim(); if (!sv) return;
+            const query = sv.includes('@') ? db.collection('users').where('email','==',sv).limit(1) : db.collection('users').where('displayName','==',sv).limit(1);
+            query.get().then(snap => { if(snap.empty) { showToast('لم يتم العثور','error'); return; } const fd = snap.docs[0]; if(fd.id===userData.uid) { showToast('لا تضيف نفسك','warning'); return; } db.collection('users').doc(userData.uid).collection('friends').doc(fd.id).set({ uid:fd.id, name:fd.data().displayName, avatar:fd.data().photoURL||'', addedAt:firebase.firestore.FieldValue.serverTimestamp() }).then(()=>{ showToast('تمت الإضافة','success'); document.getElementById('friend-search-input').value=''; loadFriendsList(); }); });
         }
-
-        function loadRoomsList() {
-            db.collection('rooms').where('status','==','waiting').limit(10).get().then(snap => {
-                const list = document.getElementById('room-list');
-                if (snap.empty) { list.innerHTML = '<p style="color:var(--text-dim);text-align:center;">لا توجد غرف</p>'; return; }
-                list.innerHTML = '';
-                snap.forEach(doc => {
-                    const r = doc.data();
-                    const div = document.createElement('div'); div.className = 'player-slot'; div.style.cursor = 'pointer'; div.style.marginBottom = '6px';
-                    div.onclick = () => joinRoom(r.code, false);
-                    div.innerHTML = `<span>🏠 ${r.code}</span><span>👑 ${r.hostName||'مضيف'}</span><span style="margin-right:auto;">👥 ${r.playerCount||0}</span><span class="badge badge-online">انتظار</span>`;
-                    list.appendChild(div);
-                });
-            });
+        function loadFriendsList() {
+            if(!userData) return; db.collection('users').doc(userData.uid).collection('friends').orderBy('addedAt').get().then(snap => { const list=document.getElementById('friends-list'); if(snap.empty) { list.innerHTML='<p style="color:var(--text-dim);text-align:center;">لا أصدقاء بعد</p>'; return; } list.innerHTML=''; snap.forEach(doc=>{ const f=doc.data(); const div=document.createElement('div'); div.className='friend-slot'; div.innerHTML=`<div style="display:flex;align-items:center;gap:10px;"><img class="avatar avatar-sm" src="${f.avatar||avatarOptions[0]}" alt="avatar"><span>${f.name}</span></div><div><button class="btn btn-xs btn-primary" onclick="inviteFriendToRoom('${f.uid}')">دعوة</button><button class="btn btn-xs btn-danger" onclick="removeFriend('${f.uid}')">حذف</button></div>`; list.appendChild(div); }); });
         }
+        function removeFriend(friendUid) { Swal.fire({ title:'حذف الصديق؟', text:'لن تتمكن من دعوته بسهولة.', icon:'question', showCancelButton:true, confirmButtonColor:'#ff3344', cancelButtonColor:'#555', confirmButtonText:'حذف', cancelButtonText:'إلغاء' }).then(r=>{ if(r.isConfirmed) db.collection('users').doc(userData.uid).collection('friends').doc(friendUid).delete().then(()=>{ showToast('تم حذف الصديق','success'); loadFriendsList(); }); }); }
+        function inviteFriendToRoom(friendUid) { if(!currentRoomId) { showToast('أنشئ غرفة أولاً','warning'); return; } copyRoomCode(); showToast('تم نسخ كود الغرفة، شاركه مع صديقك!','success'); }
 
-        function logout() {
-            auth.signOut().then(() => { currentUser=null; userData=null; currentRoomId=null; gameActive=false; clearInterval(gameTimerInterval); showScreen('welcome-screen'); });
-        }
-
-        function switchLang(lang) {
-            currentLang = lang;
-            document.body.classList.toggle('en', lang === 'en');
-            document.body.dir = lang === 'en' ? 'ltr' : 'rtl';
-            localStorage.setItem('yalla-lang', lang);
-        }
-
+        function logout() { auth.signOut().then(() => { currentUser=null; userData=null; currentRoomId=null; gameActive=false; clearInterval(gameTimerInterval); showScreen('welcome-screen'); }); }
+        function switchLang(lang) { currentLang = lang; document.body.classList.toggle('en', lang === 'en'); document.body.dir = lang === 'en' ? 'ltr' : 'rtl'; localStorage.setItem('yalla-lang', lang); }
         function updateAllUI() {}
 
-        // ==================== Initialization ====================
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                currentUser = user;
-                if (!userData) loadUserData(user.uid);
-                if (!document.getElementById('splash-screen').classList.contains('hidden') || !document.querySelector('.screen.active')) {
-                    setTimeout(() => showScreen('lobby-screen'), 100);
-                }
-            } else {
-                currentUser = null; userData = null;
-                if (!document.getElementById('splash-screen').classList.contains('hidden')) return;
-                showScreen('welcome-screen');
-            }
-        });
+        auth.onAuthStateChanged(user => { if(user) { currentUser = user; if(!userData) loadUserData(user.uid); if(!document.getElementById('splash-screen').classList.contains('hidden')||!document.querySelector('.screen.active')) setTimeout(()=>showScreen('lobby-screen'),100); } else { currentUser=null; userData=null; if(!document.getElementById('splash-screen').classList.contains('hidden')) return; showScreen('welcome-screen'); } });
 
         function initThreeJS() {
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({ alpha:true, antialias:true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.getElementById('three-bg').appendChild(renderer.domElement);
-            const geo = new THREE.BufferGeometry();
-            const count = 800;
-            const pos = new Float32Array(count*3);
-            for(let i=0; i<count*3; i+=3) { pos[i]=(Math.random()-0.5)*30; pos[i+1]=(Math.random()-0.5)*20; pos[i+2]=(Math.random()-0.5)*15; }
-            geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
-            const mat = new THREE.PointsMaterial({ size:0.03, color:0xb44dff, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true, opacity:0.7 });
-            const particles = new THREE.Points(geo,mat);
-            scene.add(particles);
-            camera.position.z = 8;
-            function animate() { requestAnimationFrame(animate); particles.rotation.y += 0.0004; particles.rotation.x += 0.0002; renderer.render(scene,camera); }
-            animate();
+            const scene = new THREE.Scene(); const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000); const renderer = new THREE.WebGLRenderer({ alpha:true, antialias:true }); renderer.setSize(window.innerWidth, window.innerHeight); document.getElementById('three-bg').appendChild(renderer.domElement);
+            const geo = new THREE.BufferGeometry(); const count = 800; const pos = new Float32Array(count*3); for(let i=0;i<count*3;i+=3) { pos[i]=(Math.random()-0.5)*30; pos[i+1]=(Math.random()-0.5)*20; pos[i+2]=(Math.random()-0.5)*15; } geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+            const mat = new THREE.PointsMaterial({ size:0.03, color:0xb44dff, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true, opacity:0.7 }); const particles = new THREE.Points(geo,mat); scene.add(particles); camera.position.z=8;
+            function animate() { requestAnimationFrame(animate); particles.rotation.y+=0.0004; particles.rotation.x+=0.0002; renderer.render(scene,camera); } animate();
         }
-
         function initParticlesJS() {
-            particlesJS('particles-js', {
-                particles: { number:{value:60}, color:{value:['#b44dff','#00d4ff','#ff2d95']}, shape:{type:'circle'}, opacity:{value:0.4,random:true}, size:{value:3,random:true}, line_linked:{enable:true,distance:150,color:'#b44dff',opacity:0.15,width:1}, move:{enable:true,speed:1.2,direction:'none',random:true,out_mode:'out'} },
-                interactivity: { detect_on:'canvas', events:{onhover:{enable:true,mode:'repulse'},resize:true}, modes:{repulse:{distance:100,duration:0.4}} },
-                retina_detect: true
-            });
+            particlesJS('particles-js', { particles:{ number:{value:60}, color:{value:['#b44dff','#00d4ff','#ff2d95']}, shape:{type:'circle'}, opacity:{value:0.4,random:true}, size:{value:3,random:true}, line_linked:{enable:true,distance:150,color:'#b44dff',opacity:0.15,width:1}, move:{enable:true,speed:1.2,direction:'none',random:true,out_mode:'out'} }, interactivity:{ detect_on:'canvas', events:{onhover:{enable:true,mode:'repulse'},resize:true}, modes:{repulse:{distance:100,duration:0.4}} }, retina_detect:true });
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            switchLang(localStorage.getItem('yalla-lang') || 'ar');
-            initThreeJS(); initParticlesJS();
-            AOS.init({ duration:800, once:true, easing:'ease-out' });
+            switchLang(localStorage.getItem('yalla-lang')||'ar');
+            initThreeJS(); initParticlesJS(); AOS.init({ duration:800, once:true, easing:'ease-out' });
             setTimeout(() => {
                 document.getElementById('splash-screen').classList.add('hidden');
-                if (currentUser && userData) showScreen('lobby-screen');
-                else if (currentUser) showScreen('lobby-screen');
-                else showScreen('welcome-screen');
+                if(currentUser&&userData) showScreen('lobby-screen'); else if(currentUser) showScreen('lobby-screen'); else showScreen('welcome-screen');
             }, 2800);
-            document.addEventListener('click', e => {
-                if (e.target.classList.contains('modal-overlay') && e.target.id) closeModal(e.target.id);
-            });
+            document.addEventListener('click', e => { if(e.target.classList.contains('modal-overlay')&&e.target.id) closeModal(e.target.id); });
         });
     </script>
 </body>
